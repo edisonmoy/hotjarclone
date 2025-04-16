@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { withRateLimit } from "@/lib/rate-limit";
+import { withRateLimit, globalRateLimiter } from "@/lib/rate-limit";
 
 // Define rate limit constants - different limits for different operations
 const GET_RATE_LIMIT = 120; // 120 requests
@@ -28,7 +28,7 @@ function getAllowedDomains(host: string) {
     ];
 }
 
-// Function to create CORS headers with proper origin
+// Function to create CORS headers with proper origin for internal app routes (GET, DELETE)
 function getCorsHeaders(request: Request): Record<string, string> {
     const origin = request.headers.get("origin") || "";
     const host = request.headers.get("host") || "";
@@ -54,8 +54,33 @@ function getCorsHeaders(request: Request): Record<string, string> {
     return headers;
 }
 
+// Function to create open CORS headers for POST requests from recording scripts
+function getOpenCorsHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { ...baseCorsHeaders };
+
+    // Allow any origin for POST requests from customer websites
+    headers["Access-Control-Allow-Origin"] = "*";
+
+    return headers;
+}
+
 // Handle OPTIONS request for CORS preflight
 export async function OPTIONS(request: Request) {
+    // Check the requested method to determine appropriate CORS response
+    const accessControlRequestMethod =
+        request.headers.get("access-control-request-method") || "";
+
+    // If it's a POST request, return open CORS headers
+    if (accessControlRequestMethod === "POST") {
+        return NextResponse.json(
+            {},
+            {
+                headers: getOpenCorsHeaders(),
+            }
+        );
+    }
+
+    // For GET and DELETE requests, use restricted CORS
     return NextResponse.json(
         {},
         {
@@ -133,18 +158,13 @@ async function createSessionHandler(request: Request) {
         if (!apiKey) {
             return NextResponse.json(
                 { error: "API key is required" },
-                { status: 401, headers: getCorsHeaders(request) }
+                { status: 401, headers: getOpenCorsHeaders() }
             );
         }
 
-        // For additional security, check if request is from an allowed domain
-        // This is a belt-and-suspenders approach since we already validate via API key
-        if (!isRequestFromAllowedDomain(request)) {
-            return NextResponse.json(
-                { error: "Unauthorized: Invalid origin" },
-                { status: 403, headers: getCorsHeaders(request) }
-            );
-        }
+        // We no longer check for allowed domains on POST requests
+        // POST requests must be allowed from any customer website where the script is installed
+        // Security is enforced through API key validation instead
 
         const body = await request.json();
         const {
@@ -161,7 +181,7 @@ async function createSessionHandler(request: Request) {
         if (!id || !url) {
             return NextResponse.json(
                 { error: "Session ID and URL are required" },
-                { status: 400, headers: getCorsHeaders(request) }
+                { status: 400, headers: getOpenCorsHeaders() }
             );
         }
 
@@ -175,7 +195,7 @@ async function createSessionHandler(request: Request) {
         if (apiKeyError || !apiKeyData) {
             return NextResponse.json(
                 { error: "Invalid API key" },
-                { status: 401, headers: getCorsHeaders(request) }
+                { status: 401, headers: getOpenCorsHeaders() }
             );
         }
 
@@ -185,7 +205,7 @@ async function createSessionHandler(request: Request) {
         if (allowedUrl !== requestUrl) {
             return NextResponse.json(
                 { error: "URL not allowed for this API key" },
-                { status: 401, headers: getCorsHeaders(request) }
+                { status: 401, headers: getOpenCorsHeaders() }
             );
         }
 
@@ -234,12 +254,12 @@ async function createSessionHandler(request: Request) {
             throw error;
         }
 
-        return NextResponse.json(data, { headers: getCorsHeaders(request) });
+        return NextResponse.json(data, { headers: getOpenCorsHeaders() });
     } catch (error) {
         console.error("Error creating session:", error);
         return NextResponse.json(
             { error: "Failed to create session" },
-            { status: 500, headers: getCorsHeaders(request) }
+            { status: 500, headers: getOpenCorsHeaders() }
         );
     }
 }
@@ -283,6 +303,65 @@ async function deleteSessionHandler(request: Request) {
     }
 }
 
+// Create a custom rate limiter wrapper for POST requests that uses open CORS
+function withOpenCorsRateLimit(options: {
+    limit: number;
+    windowMs: number;
+    identityKey?: (req: NextRequest) => string;
+    errorMessage?: string;
+    handler: (request: NextRequest) => Promise<NextResponse> | NextResponse;
+}) {
+    const {
+        limit,
+        windowMs,
+        handler,
+        errorMessage = "Too many requests, please try again later",
+    } = options;
+
+    return async function rateLimitedHandler(request: NextRequest) {
+        const result = globalRateLimiter.rateLimit({
+            request,
+            limit,
+            windowMs,
+            identityKey: options.identityKey,
+        });
+
+        // Set rate limit headers
+        const headers = new Headers(getOpenCorsHeaders());
+        headers.set("X-RateLimit-Limit", String(result.limit));
+        headers.set("X-RateLimit-Remaining", String(result.remaining));
+        headers.set("X-RateLimit-Reset", String(result.reset));
+
+        // If rate limited, return 429 Too Many Requests with open CORS headers
+        if (!result.success) {
+            return NextResponse.json(
+                { error: errorMessage },
+                {
+                    status: 429,
+                    headers: {
+                        ...Object.fromEntries(headers.entries()),
+                        "Retry-After": Math.ceil(
+                            (result.reset - Date.now()) / 1000
+                        ).toString(),
+                    },
+                }
+            );
+        }
+
+        // Otherwise, call the handler
+        const response = await handler(request);
+
+        // Add rate limit headers to the response
+        Object.entries(Object.fromEntries(headers.entries())).forEach(
+            ([key, value]) => {
+                response.headers.set(key, value);
+            }
+        );
+
+        return response;
+    };
+}
+
 // Apply rate limiting to endpoints
 export const GET = withRateLimit({
     limit: GET_RATE_LIMIT,
@@ -292,7 +371,8 @@ export const GET = withRateLimit({
     handler: getSessionsHandler,
 });
 
-export const POST = withRateLimit({
+// Use custom rate limiter for POST that returns open CORS headers
+export const POST = withOpenCorsRateLimit({
     limit: POST_RATE_LIMIT,
     windowMs: POST_RATE_LIMIT_WINDOW,
     errorMessage:

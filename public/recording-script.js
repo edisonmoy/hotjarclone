@@ -3,9 +3,6 @@
 
     // Prevent duplicate recording instances
     if (window._hotcloneRecorderInstance) {
-        console.log(
-            "Recording instance already exists, not initializing a new one"
-        );
         return;
     }
 
@@ -20,9 +17,6 @@
         // Check for a query parameter in the URL (?replay=true)
         new URLSearchParams(window.location.search).get("replay") === "true"
     ) {
-        console.log(
-            "Recording script not initialized: detected replay or HotClone app"
-        );
         // Define a no-op initializer to avoid errors if someone tries to call it
         window.initializeRecording = function () {
             console.log("Recording disabled in replay/HotClone app");
@@ -35,7 +29,6 @@
             if (!apiKey) {
                 throw new Error("API key is required");
             }
-            console.log("RecordingScript initialized with API key");
             this.events = [];
             this.startTime = Date.now();
             this.isRecording = false;
@@ -49,7 +42,6 @@
             // Always create a new session ID for each page load
             // This ensures refreshes and new visits create a new session
             this.sessionId = this.generateNewSessionId();
-            console.log("Generated new sessionId:", this.sessionId);
 
             // Track this page load in session storage for refresh detection
             this.updatePageLoadTracking();
@@ -98,7 +90,6 @@
                         url === window.location.href &&
                         Date.now() - timestamp < 5000;
 
-                    console.log("Page refresh detected:", isRefresh);
                     return isRefresh;
                 }
             } catch (e) {
@@ -132,11 +123,8 @@
         }
 
         setupUrlChangeDetection() {
-            // Check for URL changes periodically
             setInterval(() => {
                 if (this.currentUrl !== window.location.href) {
-                    console.log("URL changed:", window.location.href);
-                    // Record a new session_start event with the new URL
                     this.recordEvent("session_start", {
                         url: window.location.href,
                         userAgent: navigator.userAgent,
@@ -144,10 +132,8 @@
                         viewportSize: `${window.innerWidth}x${window.innerHeight}`,
                         timestamp: new Date().toISOString(),
                     });
-                    // Update the current URL
                     this.currentUrl = window.location.href;
 
-                    // Save the chunk immediately to ensure the navigation is recorded
                     this.saveChunk();
                 }
             }, 500); // Check every 500ms
@@ -174,10 +160,6 @@
 
         handleUrlChange() {
             if (this.currentUrl !== window.location.href) {
-                console.log(
-                    "URL changed via navigation:",
-                    window.location.href
-                );
                 // Record a new session_start event with the new URL
                 this.recordEvent("session_start", {
                     url: window.location.href,
@@ -195,7 +177,6 @@
         }
 
         start() {
-            console.log("Starting recording...");
             if (this.isRecording) return;
             this.isRecording = true;
             this.startTime = Date.now();
@@ -211,12 +192,7 @@
                 viewportSize: `${window.innerWidth}x${window.innerHeight}`,
                 timestamp: new Date().toISOString(),
             });
-            console.log("Recording started successfully");
-
-            // Start periodic saving immediately
             this.saveChunk();
-
-            // Setup mutation observer after initial capture
             this.setupMutationObserver();
         }
 
@@ -224,36 +200,23 @@
             if (!this.isRecording) return;
             this.isRecording = false;
 
-            // Clean up event listeners
             this.removeEventListeners();
 
-            // Clean up DOM snapshot interval
             if (this.snapshotInterval) {
                 clearInterval(this.snapshotInterval);
                 this.snapshotInterval = null;
             }
-
-            // Record the session end event
             this.recordEvent("session_end", {
                 timestamp: new Date().toISOString(),
             });
-
-            // Take one final snapshot
             this.captureFullDomSnapshot();
-
-            // Save all remaining data
             return this.saveSession();
         }
 
         setupEventListeners() {
-            console.log("Setting up event listeners");
-            // Standard events
             Object.entries(this.boundHandlers).forEach(([event, handler]) => {
                 document.addEventListener(event, handler);
-                console.log(`Added listener for ${event}`);
             });
-
-            // Special handling for canvas interactions
             this.setupCanvasListeners();
         }
 
@@ -278,7 +241,6 @@
         }
 
         handleClick(event) {
-            console.log("Click event recorded");
             const target = event.target;
             this.recordEvent("click", {
                 x: event.clientX,
@@ -295,7 +257,6 @@
         }
 
         handleScroll() {
-            console.log("Scroll event recorded");
             this.recordEvent("scroll", {
                 x: window.scrollX,
                 y: window.scrollY,
@@ -304,7 +265,6 @@
         }
 
         handleInput(event) {
-            console.log("Input event recorded");
             const target = event.target;
             this.recordEvent("input", {
                 target: {
@@ -360,15 +320,7 @@
                 timestamp: Date.now() - this.startTime,
                 data,
             });
-
-            console.log(
-                `Event recorded: ${type}, total events: ${this.events.length}`
-            );
-
-            // If events array gets too large, save a chunk
             if (this.events.length > 10) {
-                // Reduced from 1000 to 10 for testing
-                console.log("Event threshold reached, saving chunk");
                 this.saveChunk();
             }
         }
@@ -377,15 +329,8 @@
             if (this.events.length === 0) return;
 
             const chunk = this.events.splice(0, this.events.length);
-            console.log("Saving chunk:", {
-                sessionId: this.sessionId,
-                eventCount: chunk.length,
-                firstEvent: chunk[0],
-                lastEvent: chunk[chunk.length - 1],
-            });
 
             try {
-                // First, ensure the session exists
                 const sessionResponse = await fetch(this.apiEndpoint, {
                     method: "POST",
                     headers: {
@@ -449,8 +394,7 @@
                     );
                 }
 
-                const data = await chunkResponse.json();
-                console.log("Chunk saved successfully:", data);
+                await chunkResponse.json();
             } catch (error) {
                 console.error("Error saving chunk:", error);
                 // If there's an error, put the events back in the queue
@@ -535,19 +479,12 @@
         }
 
         setupMutationObserver() {
-            console.log("Setting up enhanced mutation observer");
-
-            // Create a mutation observer to detect DOM changes
             this.mutationObserver = new MutationObserver((mutations) => {
-                // Add mutations to the pending queue
                 this.pendingMutations.push(...mutations);
 
-                // Process mutations if we're not already doing so
                 if (!this.processingMutations) {
                     this.processMutationQueue();
                 }
-
-                // Check if we should take a full snapshot based on significance
                 this.checkForSignificantChanges(mutations);
             });
 
@@ -857,8 +794,6 @@
         // Capture the complete initial DOM state for accurate playback
         captureInitialDomState() {
             try {
-                console.log("Capturing initial DOM state");
-
                 // Capture the full HTML DOM snapshot
                 const doctype = document.doctype
                     ? new XMLSerializer().serializeToString(document.doctype)
@@ -927,7 +862,6 @@
                     },
                 });
 
-                // Record a full DOM snapshot for replay
                 this.recordEvent("dom_snapshot", {
                     html: htmlSnapshot,
                     doctype: doctype,
@@ -937,25 +871,15 @@
                     viewportSize: `${window.innerWidth}x${window.innerHeight}`,
                 });
 
-                console.log("Initial DOM state captured", {
-                    snapshotSize: htmlSnapshot.length,
-                    canvasCount: canvasElements.length,
-                    formCount: formElements.length,
-                    containerCount: interactiveContainers.length,
-                });
-
-                // Schedule periodic full DOM snapshots
                 this.scheduleDomSnapshots();
             } catch (error) {
                 console.error("Error capturing initial DOM state:", error);
             }
         }
 
-        // Generate or retrieve a unique ID for DOM elements
         getOrCreateElementId(element) {
             if (element.id) return element.id;
 
-            // Create a deterministic ID based on XPath and properties
             const xpath = this.getXPath(element);
             const tagName = element.tagName;
             const className = element.className || "";
@@ -965,7 +889,6 @@
                 "-"
             )}-${this.hashString(xpath)}`;
 
-            // Set the ID on the element for future reference
             if (!element.hasAttribute("data-hotclone-id")) {
                 element.setAttribute("data-hotclone-id", domId);
             }
@@ -1262,7 +1185,6 @@
                     timestamp: new Date().toISOString(),
                 });
 
-                console.log("Drag end recorded");
                 this.isDragging = false;
                 this.dragTarget = null;
 
@@ -1328,11 +1250,6 @@
                     viewportSize: `${window.innerWidth}x${window.innerHeight}`,
                 });
 
-                console.log(
-                    `Full DOM snapshot captured: ${(
-                        htmlSnapshot.length / 1024
-                    ).toFixed(1)}KB`
-                );
                 this.lastDomSnapshotTime = Date.now();
             } catch (error) {
                 console.error("Error capturing full DOM snapshot:", error);
@@ -1368,17 +1285,12 @@
                     }
                 }
 
-                // Text content changes are slightly significant
                 if (mutation.type === "characterData") {
                     significanceScore += 0.5;
                 }
             });
 
-            // If changes are significant, capture a full snapshot
             if (significanceScore >= 5) {
-                console.log(
-                    `Significant DOM changes detected (score: ${significanceScore}), capturing snapshot`
-                );
                 this.captureFullDomSnapshot();
             }
         }
@@ -1388,11 +1300,9 @@
     window.initializeRecording = function (apiKey) {
         // Prevent multiple initializations
         if (window._hotcloneRecorderInstance) {
-            console.log("Recording already initialized");
             return window._hotcloneRecorderInstance;
         }
 
-        console.log("initializeRecording called with API key");
         if (!apiKey) {
             console.error("API key is required");
             return;
@@ -1405,9 +1315,6 @@
 
             // Save session when user leaves the page or refreshes
             window.addEventListener("beforeunload", () => {
-                console.log(
-                    "Page unloading, stopping recording and creating new session..."
-                );
                 recorder.stop();
 
                 // Clear any existing session data to ensure a new session on reload
@@ -1417,7 +1324,6 @@
             // Save session periodically (every 5 seconds for testing)
             setInterval(() => {
                 if (recorder.isRecording) {
-                    console.log("Periodic save triggered");
                     recorder.saveChunk();
                 }
             }, 5000);

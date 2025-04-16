@@ -13,7 +13,7 @@ export default function Navbar() {
         <nav className="bg-white shadow-sm">
             <div className="h-full flex flex-col">
                 <div className="p-4 border-b">
-                    <h1 className="text-xl font-bold">HotClone</h1>
+                    <h1 className="text-xl font-bold">HotJarClone</h1>
                 </div>
                 <div className="flex-1 flex flex-col space-y-1 p-4">
                     <Link

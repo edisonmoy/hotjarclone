@@ -192,12 +192,6 @@ export default function ApiKeysPage() {
 "use client";
 import { useEffect } from "react";
 
-declare global {
-    interface Window {
-        initializeRecording?: (apiKey: string) => void;
-    }
-}
-
 export default function SessionRecorder() {
     useEffect(() => {
         const script = document.createElement("script");

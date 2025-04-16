@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-    title: "HotClone - Session Recording",
+    title: "HotJarClone - Session Recording",
     description: "A Hotjar clone for session recording and playback",
 };
 

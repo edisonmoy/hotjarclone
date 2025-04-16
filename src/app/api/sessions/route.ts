@@ -128,11 +128,21 @@ async function getSessionsHandler(request: Request) {
 
 async function createSessionHandler(request: Request) {
     try {
+        // First check API key requirement
         const apiKey = request.headers.get("x-api-key");
         if (!apiKey) {
             return NextResponse.json(
                 { error: "API key is required" },
                 { status: 401, headers: getCorsHeaders(request) }
+            );
+        }
+
+        // For additional security, check if request is from an allowed domain
+        // This is a belt-and-suspenders approach since we already validate via API key
+        if (!isRequestFromAllowedDomain(request)) {
+            return NextResponse.json(
+                { error: "Unauthorized: Invalid origin" },
+                { status: 403, headers: getCorsHeaders(request) }
             );
         }
 
